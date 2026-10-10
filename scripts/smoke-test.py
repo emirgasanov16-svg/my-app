@@ -33,7 +33,22 @@ with sync_playwright() as p:
                 assert hashlib.sha256(response.body()).digest() == hashlib.sha256(expected).digest(), 'Deployed bytes differ from the working preview'
 
             def click(name):
-                page.get_by_role('button', name=name, exact=True).click()
+                button = page.get_by_role('button', name=name, exact=True)
+                # SVG groups include unpainted space. Use their visible labels
+                # or strokes so this is an actual pointer/touch interaction.
+                label = button.locator('text').first
+                if label.count():
+                    label.tap() if mobile else label.click()
+                else:
+                    point = button.locator('path').first.evaluate('''path => {
+                        const p = path.getPointAtLength(path.getTotalLength() * 0.4);
+                        const screen = new DOMPoint(p.x, p.y).matrixTransform(path.getScreenCTM());
+                        return {x: screen.x, y: screen.y};
+                    }''')
+                    if mobile:
+                        page.touchscreen.tap(point['x'], point['y'])
+                    else:
+                        page.mouse.click(point['x'], point['y'])
 
             def screen(name):
                 assert page.evaluate('data[current].name') == name

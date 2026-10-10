@@ -31,6 +31,8 @@ The production build copies the existing HTML to `docs/index.html` and verifies 
 An optional real-browser check is provided in `scripts/smoke-test.py`. It requires Python Playwright and Chromium. With a local server running:
 
 ```bash
+python3 -m pip install playwright
+python3 -m playwright install chromium
 python3 scripts/smoke-test.py --url http://localhost:8000/
 ```
 
@@ -48,7 +50,11 @@ This self-contained static application is suited to GitHub Pages.
 
 Expected address **after successful deployment**: `https://emirgasanov16-svg.github.io/my-app/`. This address is not evidence that deployment succeeded. GitHub Pages must be enabled and the actual response verified. The source repository must remain available, and hosting depends on GitHub's service and your account settings.
 
+The repository is currently private. GitHub Pages for private repositories requires an eligible GitHub plan. The current GitHub integration can push project files but returned `403 Resource not accessible by integration` for the Pages API. Enabling Pages requires either a GitHub connection/token with Pages read/write permission or a repository administrator configuring Pages through Settings. Do not change repository visibility merely to bypass that requirement.
+
 For Netlify or Vercel, import this repository as a static site: build command `node scripts/build-site.cjs`, publish/output directory `docs`, no framework preset, no environment variables. Use only one production host unless you intentionally need several.
+
+Netlify can host the app publicly while the GitHub source stays private. Sign in to Netlify, import `emirgasanov16-svg/my-app`, grant access to that repository, select branch `main`, set the build command and publish directory above, and deploy. Confirm the deployment reports success, then verify the generated public URL. For automated deployment from this environment, Netlify deployment credentials would need to be entered securely through environment settings, never pasted into chat.
 
 ## Update the application
 
