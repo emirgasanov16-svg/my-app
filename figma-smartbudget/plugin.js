@@ -1,0 +1,380 @@
+/* Native Figma nodes and prototype connections. No browser or network needed. */
+const SB = SmartBudgetModel;
+const C = {
+  ink: '#172B29', muted: '#6A7B78', brand: '#0F766E', soft: '#E8F4EF',
+  canvas: '#FAFCFB', white: '#FFFFFF', line: '#E2EAE6', track: '#EDF1EE',
+  amber: '#A66420', amberSoft: '#FFF3E3', red: '#AF493A', redSoft: '#FCF0EB'
+};
+const W = 393, H = 852;
+/** @type {Map<string, FrameNode>} */
+const frames = new Map();
+/** @type {Array<{node: FrameNode | RectangleNode, destination: string}>} */
+const connections = [];
+/** @type {PageNode} */
+let page;
+
+function rgb(hex) {
+  return { r: parseInt(hex.slice(1, 3), 16) / 255,
+    g: parseInt(hex.slice(3, 5), 16) / 255, b: parseInt(hex.slice(5, 7), 16) / 255 };
+}
+/** @returns {SolidPaint[]} */
+function paint(hex, opacity = 1) { return [{ type: 'SOLID', color: rgb(hex), opacity }]; }
+/** @template {SceneNode} T @param {T} node @returns {T} */
+function add(parent, node, name, x, y) {
+  parent.appendChild(node); node.name = name; node.x = x; node.y = y; return node;
+}
+function box(parent, name, x, y, width, height, fill = C.white, radius = 0, stroke = null) {
+  const n = add(parent, figma.createRectangle(), name, x, y);
+  n.resize(width, height); n.fills = fill ? paint(fill) : [];
+  n.cornerRadius = radius;
+  if (stroke) { n.strokes = paint(stroke); n.strokeWeight = 1; }
+  return n;
+}
+function group(parent, name, x, y, width, height, fill = null, radius = 0) {
+  const n = add(parent, figma.createFrame(), name, x, y);
+  n.resize(width, height); n.fills = fill ? paint(fill) : [];
+  n.cornerRadius = radius; n.clipsContent = false;
+  return n;
+}
+/** @param {'LEFT' | 'RIGHT' | 'CENTER' | 'JUSTIFIED'} align */
+function text(parent, value, x, y, size = 14, style = 'Regular', color = C.ink, width = 345, align = 'LEFT') {
+  const n = add(parent, figma.createText(), value, x, y);
+  n.fontName = { family: 'Inter', style }; n.fontSize = size;
+  n.lineHeight = { unit: 'PIXELS', value: Math.ceil(size * 1.35) };
+  n.fills = paint(color); n.characters = value;
+  n.resize(width, 1); n.textAutoResize = 'HEIGHT'; n.textAlignHorizontal = align;
+  return n;
+}
+const ICONS = {
+  home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/>',
+  wallet: '<path d="M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h15v11H5a3 3 0 0 1-3-3V6"/><path d="M20 12h-4v4h4"/>',
+  chart: '<path d="M3 3v18h18M7 14l5-5 4 3 5-7"/>',
+  spark: '<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  arrow: '<path d="m9 5 7 7-7 7"/>',
+  back: '<path d="m15 5-7 7 7 7"/>',
+  close: '<path d="m6 6 12 12M6 18 18 6"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  utensils: '<path d="M4 3v6a3 3 0 0 0 6 0V3M7 3v18M20 21V3c-4 0-4 9 0 9"/>',
+  train: '<rect x="5" y="3" width="14" height="16" rx="4"/><path d="M5 10h14M12 3v7M8 22l2-3M16 22l-2-3"/><circle cx="8.5" cy="15" r=".5"/><circle cx="15.5" cy="15" r=".5"/>',
+  bag: '<path d="m5 7-2 13h18L19 7zM8 7V6a4 4 0 0 1 8 0v1"/>',
+  receipt: '<path d="M4 3v18l4-2 4 2 4-2 4 2V3l-4 2-4-2-4 2zM8 9h8M8 13h6"/>',
+  light: '<path d="M9 18h6M9 22h6M8 14a6 6 0 1 1 8 0l-1 2H9z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  shield: '<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/>',
+  edit: '<path d="m16 3 5 5-12 12-6 1 1-6zM14 5l5 5"/>',
+  trash: '<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7"/>'
+};
+function svg(parent, name, source, x, y, width, height) {
+  const n = add(parent, figma.createNodeFromSvg(source), name, x, y);
+  n.resize(width, height); return n;
+}
+function icon(parent, type, x, y, color = C.brand, size = 22) {
+  return svg(parent, type + ' icon', `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${ICONS[type]}</svg>`, x, y, size, size);
+}
+function id(state, view) { return SB.key(state) + '/' + view; }
+function connect(node, state, view) { connections.push({ node, destination: id(state, view) }); return node; }
+function withState(state, change) { return { ...state, ...change }; }
+function button(parent, label, x, y, width, state, view, kind = 'primary', glyph = null) {
+  const n = group(parent, label + ' button', x, y, width, 52, kind === 'primary' ? C.brand : C.soft, 14);
+  const color = kind === 'primary' ? C.white : C.brand;
+  text(n, label, glyph ? 44 : 12, 16, 14, 'Semi Bold', color, width - (glyph ? 56 : 24), 'CENTER');
+  if (glyph) icon(n, glyph, 18, 15, color, 22);
+  return connect(n, state, view);
+}
+function linkRow(parent, label, detail, y, state, view, glyph = 'arrow') {
+  const n = group(parent, label + ' link', 24, y, 345, 70, C.soft, 16);
+  text(n, label, 16, 12, 15, 'Semi Bold', C.ink, 280);
+  text(n, detail, 16, 36, 12, 'Regular', C.muted, 285);
+  icon(n, glyph, 306, 24); return connect(n, state, view);
+}
+function progress(parent, x, y, width, ratio, color = C.brand, height = 6) {
+  box(parent, 'Progress track', x, y, width, height, C.track, height / 2);
+  box(parent, 'Progress value', x, y, Math.max(1, width * Math.min(1, Math.max(0, ratio))), height, color, height / 2);
+}
+function status(parent) {
+  text(parent, '9:41', 24, 16, 14, 'Semi Bold', C.ink, 75);
+  svg(parent, 'Signal, Wi-Fi and battery', '<svg xmlns="http://www.w3.org/2000/svg" width="72" height="18" viewBox="0 0 72 18"><g fill="#172B29"><rect x="0" y="11" width="3" height="5" rx="1"/><rect x="5" y="8" width="3" height="8" rx="1"/><rect x="10" y="5" width="3" height="11" rx="1"/><rect x="15" y="2" width="3" height="14" rx="1"/></g><g stroke="#172B29" stroke-width="1.7" fill="none" stroke-linecap="round"><path d="M25 6q7-7 14 0M28 9q4-4 8 0M31 12q1-1 2 0"/><rect x="46" y="3" width="22" height="12" rx="3"/></g><rect fill="#172B29" x="49" y="6" width="16" height="6" rx="1"/><rect fill="#172B29" x="69" y="7" width="2" height="4" rx="1"/></svg>', 299, 17, 70, 18);
+}
+function nav(parent, state, active) {
+  box(parent, 'Navigation background', 0, 758, W, 94, C.white);
+  box(parent, 'Navigation divider', 0, 758, W, 1, C.line);
+  const items = [['Dashboard', 'Home', 'home'], ['Expenses', 'Expenses', 'receipt'], ['Budget', 'Budget', 'wallet'], ['Tips', 'Tips', 'spark']];
+  items.forEach(([view, label, glyph], i) => {
+    const n = group(parent, 'Tab ' + label, 8 + i * 96, 765, 89, 57);
+    const selected = active === view;
+    if (selected) box(n, 'Active tab background', 22, 0, 45, 32, C.soft, 12);
+    icon(n, glyph, 34, 5, selected ? C.brand : C.muted, 21);
+    text(n, label, 0, 34, 10, selected ? 'Semi Bold' : 'Medium', selected ? C.brand : C.muted, 89, 'CENTER');
+    connect(n, state, view);
+  });
+  box(parent, 'Home indicator', 130, 836, 133, 4, C.ink, 2);
+}
+function header(parent, title, subtitle, state, back = false) {
+  if (back) {
+    const n = group(parent, 'Back to dashboard', 16, 62, 44, 44);
+    icon(n, 'back', 11, 11, C.ink); connect(n, state, 'Dashboard');
+  }
+  text(parent, title, back ? 66 : 24, 65, 25, 'Bold', C.ink, back ? 303 : 345);
+  text(parent, subtitle, 24, 105, 12, 'Regular', C.muted, 345);
+}
+function categoryRow(parent, category, y, mode, state) {
+  box(parent, category.name + ' icon tile', 24, y, 42, 42, C.soft, 12);
+  icon(parent, category.icon, 34, y + 10, category.color, 22);
+  text(parent, category.name, 80, y - 1, 14, 'Semi Bold', C.ink, 165);
+  text(parent, mode === 'budget' ? SB.money(category.limit) : SB.money(category.spent), 235, y - 1, 14, 'Semi Bold', C.ink, 134, 'RIGHT');
+  text(parent, mode === 'budget' ? `${SB.money(category.spent)} spent` : `${Math.round(category.spent / SB.metrics(state).spent * 100)}% of spending`, 80, y + 22, 11, 'Regular', C.muted, 280);
+  progress(parent, 80, y + 48, 289, mode === 'budget' ? category.spent / category.limit : category.spent / SB.metrics(state).spent, category.color, 5);
+}
+function dashboard(parent, state) {
+  const m = SB.metrics(state);
+  header(parent, 'Your money, clearer.', 'October 2026 · 21 days left', state);
+  const card = group(parent, 'Remaining budget card', 24, 142, 345, 171, C.brand, 22);
+  text(card, 'Left to spend', 20, 17, 13, 'Medium', '#D9EFE8', 305);
+  text(card, SB.money(m.remaining), 20, 39, 37, 'Bold', C.white, 305);
+  text(card, `${SB.money(m.spent)} of ${SB.money(m.budget)}`, 20, 99, 12, 'Medium', '#E5F5EF', 305);
+  box(card, 'Budget track', 20, 129, 305, 6, '#418F85', 3);
+  box(card, 'Budget used', 20, 129, 305 * m.spent / m.budget, 6, '#C8ECDC', 3);
+  button(parent, state.expenseAdded ? 'View saved expense' : 'Add expense', 24, 329, 345, state,
+    state.expenseAdded ? 'Expense detail' : 'Add expense', 'primary', state.expenseAdded ? 'receipt' : 'plus');
+  text(parent, 'A safe daily pace', 24, 402, 14, 'Semi Bold', C.ink, 220);
+  text(parent, SB.money(m.safeDaily), 210, 397, 20, 'Bold', C.brand, 159, 'RIGHT');
+  text(parent, 'Your remaining budget divided by 21 days.', 24, 430, 11, 'Regular', C.muted, 345);
+  text(parent, 'Where it went', 24, 470, 18, 'Semi Bold', C.ink, 220);
+  SB.categories(state).slice(0, 2).forEach((c, i) => categoryRow(parent, c, 509 + i * 69, 'spend', state));
+  linkRow(parent, state.planApplied ? 'Your plan is helping' : 'Could you go over budget?',
+    state.planApplied ? `${SB.money(m.plannedSavings)} in planned savings` : `${SB.money(m.currentForecast)} projected this month`, 668, state, 'Forecast', 'chart');
+}
+function expenseRow(parent, title, category, amount, day, y, glyph, state, selectable = false) {
+  const row = group(parent, title + ' expense', 24, y, 345, 68);
+  box(row, 'Category tile', 0, 7, 42, 42, C.soft, 12); icon(row, glyph, 10, 17);
+  text(row, title, 56, 8, 14, 'Semi Bold', C.ink, 174);
+  text(row, `${category} · ${day}`, 56, 31, 11, 'Regular', C.muted, 189);
+  text(row, SB.money(amount), 221, 13, 13, 'Semi Bold', C.ink, 124, 'RIGHT');
+  box(row, 'Row divider', 56, 66, 289, 1, C.line);
+  if (selectable) connect(row, state, 'Expense detail');
+}
+function expenses(parent, state) {
+  const m = SB.metrics(state);
+  header(parent, 'Expenses', 'A little awareness goes a long way.', state);
+  text(parent, 'Spent this month', 24, 145, 12, 'Medium', C.muted, 345);
+  text(parent, SB.money(m.spent), 24, 166, 33, 'Bold', C.ink, 345);
+  button(parent, state.expenseAdded ? 'View saved expense' : 'Add expense', 24, 225, 345,
+    state, state.expenseAdded ? 'Expense detail' : 'Add expense', 'primary', state.expenseAdded ? 'receipt' : 'plus');
+  text(parent, 'Recent expenses', 24, 306, 18, 'Semi Bold', C.ink, 270);
+  let y = 341;
+  if (state.expenseAdded) { expenseRow(parent, 'Lunch at Kopi House', 'Food & drinks', 48.90, 'Today', y, 'utensils', state, true); y += 69; }
+  expenseRow(parent, 'Groceries', 'Food & drinks', 64.90, 'Today', y, 'bag', state); y += 69;
+  expenseRow(parent, 'Train pass top-up', 'Transport', 24.50, '9 Oct', y, 'train', state); y += 69;
+  expenseRow(parent, 'Dinner at Nasi Corner', 'Food & drinks', 18.60, '9 Oct', y, 'utensils', state); y += 69;
+  expenseRow(parent, 'Notebook & pens', 'Shopping', 32.40, '8 Oct', y, 'bag', state);
+  text(parent, 'Recent entries shown. Total includes earlier spending.', 24, 720, 10, 'Regular', C.muted, 345);
+}
+function budget(parent, state) {
+  const m = SB.metrics(state);
+  header(parent, 'Monthly budget', 'Give every ringgit a place.', state);
+  const card = group(parent, 'Monthly budget summary', 24, 143, 345, 150, C.soft, 20);
+  text(card, 'October limit', 18, 16, 12, 'Medium', C.muted, 309);
+  text(card, SB.money(m.budget), 18, 39, 34, 'Bold', C.ink, 309);
+  text(card, `${Math.round(m.spent / m.budget * 100)}% used · ${SB.money(m.remaining)} left`, 18, 99, 12, 'Medium', C.brand, 309);
+  button(parent, 'Edit monthly budget', 24, 310, 345, state, 'Edit budget ' + Number(state.budgetRaised), 'secondary', 'edit');
+  text(parent, 'Category limits', 24, 392, 18, 'Semi Bold', C.ink, 345);
+  SB.categories(state).forEach((c, i) => categoryRow(parent, c, 434 + i * 67, 'budget', state));
+  text(parent, 'Category limits add up to your monthly budget.', 24, 720, 10, 'Regular', C.muted, 345);
+}
+function tips(parent, state) {
+  const m = SB.metrics(state);
+  header(parent, 'AI saving tips', 'Demo suggestions based on your spending.', state);
+  const anchor = group(parent, 'Meal plan suggestion', 24, 143, 345, 269, C.soft, 22);
+  icon(anchor, 'spark', 18, 20, C.brand, 26);
+  text(anchor, 'Spend a little less on lunch', 18, 65, 21, 'Bold', C.ink, 309);
+  text(anchor, 'Try packing lunch and skipping delivery.', 18, 104, 12, 'Regular', C.muted, 309);
+  text(anchor, SB.money(m.plannedSavings), 18, 139, 32, 'Bold', C.brand, 210);
+  text(anchor, 'potential savings this month', 18, 184, 11, 'Regular', C.muted, 309);
+  text(anchor, 'RM 22 less per day × 21 days', 18, 207, 12, 'Medium', C.brand, 309);
+  if (state.planApplied) {
+    icon(anchor, 'check', 294, 22, C.brand, 20);
+    text(anchor, 'Plan applied', 192, 24, 11, 'Semi Bold', C.brand, 92, 'RIGHT');
+  }
+  button(parent, state.planApplied ? 'Pause saving plan' : 'Apply saving plan', 24, 428, 345,
+    withState(state, { planApplied: !state.planApplied }), 'Tips', state.planApplied ? 'secondary' : 'primary');
+  text(parent, 'Small changes worth trying', 24, 510, 17, 'Semi Bold', C.ink, 345);
+  icon(parent, 'receipt', 25, 552, C.muted);
+  text(parent, 'Check unused subscriptions', 62, 548, 14, 'Semi Bold', C.ink, 303);
+  text(parent, 'Keep the ones you use every week.', 62, 574, 12, 'Regular', C.muted, 303);
+  box(parent, 'Suggestion divider', 62, 608, 307, 1, C.line);
+  icon(parent, 'clock', 25, 633, C.muted);
+  text(parent, 'Wait 24 hours before buying', 62, 628, 14, 'Semi Bold', C.ink, 303);
+  text(parent, 'Give impulse purchases a second thought.', 62, 654, 12, 'Regular', C.muted, 303);
+  const link = group(parent, 'See spending forecast', 24, 698, 345, 44);
+  text(link, 'See spending forecast', 0, 12, 13, 'Semi Bold', C.brand, 311);
+  icon(link, 'arrow', 319, 11, C.brand, 20); connect(link, state, 'Forecast');
+}
+function forecastChart(parent, state, y) {
+  const m = SB.metrics(state);
+  const max = 4000, chartHeight = 145, left = 7, right = 315, top = 15;
+  const cy = (amount) => top + chartHeight * (1 - amount / max);
+  const actual = `${left},${cy(0)} ${left + 36},${cy(360)} ${left + 68},${cy(730)} ${left + 95},${cy(m.spent)}`;
+  const current = `${left + 95},${cy(m.spent)} ${right},${cy(m.currentForecast)}`;
+  const plan = `${left + 95},${cy(m.spent)} ${right},${cy(m.withPlanForecast)}`;
+  const budgetY = cy(m.budget);
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" width="321" height="187" viewBox="0 0 321 187"><g stroke="#E2EAE6" stroke-width="1"><path d="M7 15H315M7 51H315M7 87H315M7 124H315M7 160H315"/></g><path d="M7 ${budgetY}H315" stroke="#A66420" stroke-dasharray="3 4"/><polyline points="${actual}" fill="none" stroke="#0F766E" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><polyline points="${current}" fill="none" stroke="#B58263" stroke-width="2" stroke-dasharray="5 5"/>${state.planApplied ? `<polyline points="${plan}" fill="none" stroke="#0F766E" stroke-width="2.5" stroke-dasharray="5 5"/>` : ''}<circle cx="${left + 95}" cy="${cy(m.spent)}" r="4" fill="#0F766E"/><circle cx="315" cy="${cy(m.forecast)}" r="4" fill="${state.planApplied ? '#0F766E' : '#B58263'}"/></svg>`;
+  svg(parent, 'Actual and projected spending chart', source, 36, y, 321, 187);
+  text(parent, '1 Oct', 33, y + 168, 10, 'Regular', C.muted, 70);
+  text(parent, 'Today', 110, y + 168, 10, 'Medium', C.brand, 70);
+  text(parent, '31 Oct', 294, y + 168, 10, 'Regular', C.muted, 64, 'RIGHT');
+  text(parent, 'Scale: RM 0–4,000', 24, y - 18, 10, 'Regular', C.muted, 150);
+  text(parent, `Budget ${SB.money(m.budget)}`, 178, y - 18, 10, 'Medium', C.amber, 191, 'RIGHT');
+}
+function forecast(parent, state) {
+  const m = SB.metrics(state), safe = m.forecastDifference >= 0;
+  header(parent, 'Spending forecast', 'An estimate, not a guarantee.', state, true);
+  text(parent, 'Projected month-end spending', 24, 145, 12, 'Medium', C.muted, 345);
+  text(parent, SB.money(m.forecast), 24, 169, 34, 'Bold', C.ink, 345);
+  const chip = group(parent, safe ? 'Within budget' : 'Over budget', 24, 222, 345, 39, safe ? C.soft : C.amberSoft, 10);
+  icon(chip, safe ? 'shield' : 'clock', 12, 9, safe ? C.brand : C.amber, 20);
+  text(chip, `${SB.money(Math.abs(m.forecastDifference))} ${safe ? 'under' : 'over'} your budget`, 42, 11, 12, 'Semi Bold', safe ? C.brand : C.amber, 290);
+  forecastChart(parent, state, 304);
+  box(parent, 'Actual legend line', 25, 512, 20, 3, C.brand, 1);
+  text(parent, 'Actual', 54, 504, 11, 'Medium', C.muted, 85);
+  box(parent, 'Forecast legend line', 140, 512, 20, 3, state.planApplied ? C.brand : '#B58263', 1);
+  text(parent, state.planApplied ? 'With saving plan' : 'Current pace', 170, 504, 11, 'Medium', C.muted, 179);
+  text(parent, 'How we estimate', 24, 554, 15, 'Semi Bold', C.ink, 345);
+  text(parent, `${SB.money(m.spent)} ÷ 10 days × 31 days`, 24, 582, 12, 'Regular', C.muted, 345);
+  text(parent, state.planApplied ? `Minus ${SB.money(m.plannedSavings)} in planned savings.` : 'Your daily average continues through October.', 24, 608, 12, 'Regular', C.muted, 345);
+  button(parent, 'Compare scenarios', 24, 651, 345, state, 'Compare forecast', 'secondary', 'chart');
+  const n = group(parent, 'Manage saving plan', 24, 704, 345, 44);
+  text(n, state.planApplied ? 'Manage saving plan' : 'Explore saving tips', 0, 12, 12, 'Semi Bold', C.brand, 315);
+  icon(n, 'arrow', 319, 11, C.brand, 20); connect(n, state, 'Tips');
+}
+const views = { Dashboard: dashboard, Expenses: expenses, Budget: budget, Tips: tips, Forecast: forecast };
+function screen(state, view, x, y) {
+  const n = group(page, id(state, view), x, y, W, H, C.canvas, 30);
+  n.clipsContent = true; n.strokes = paint(C.line); n.strokeWeight = 1;
+  frames.set(id(state, view), n); status(n);
+  return n;
+}
+function modal(parent, state, title, top, returnView) {
+  const scrim = box(parent, 'Close dialog backdrop', 0, 42, W, 810, '#172B29');
+  scrim.opacity = .32; connect(scrim, state, returnView);
+  const sheet = group(parent, title + ' dialog', 0, top, W, H - top, C.white, 26);
+  box(sheet, 'Drag indicator', 169, 10, 55, 4, C.line, 2);
+  text(sheet, title, 24, 34, 22, 'Bold', C.ink, 298);
+  const close = group(sheet, 'Close dialog', 333, 26, 44, 44);
+  icon(close, 'close', 11, 11, C.muted); connect(close, state, returnView);
+  box(sheet, 'Home indicator', 130, H - top - 16, 133, 4, C.ink, 2);
+  return sheet;
+}
+function budgetDialog(state, selected, x, y) {
+  const n = screen(state, 'Edit budget ' + Number(selected), x, y);
+  budget(n, state); nav(n, state, 'Budget');
+  const sheet = modal(n, state, 'Set monthly budget', 330, 'Budget');
+  text(sheet, 'October 2026', 24, 76, 12, 'Regular', C.muted, 345);
+  text(sheet, 'Monthly limit', 24, 112, 12, 'Medium', C.muted, 345);
+  box(sheet, 'Selected amount', 24, 143, 345, 77, C.canvas, 14, C.line);
+  text(sheet, SB.money(selected ? 3200 : 3000), 40, 160, 31, 'Bold', C.ink, 305);
+  text(sheet, 'Choose a demo amount', 24, 245, 12, 'Medium', C.muted, 345);
+  [false, true].forEach((value, i) => {
+    const choice = group(sheet, 'Choose ' + (value ? '3200' : '3000'), 24 + i * 179, 273, 166, 52,
+      value === selected ? C.soft : C.canvas, 12);
+    choice.strokes = paint(value === selected ? C.brand : C.line);
+    text(choice, value ? 'RM 3,200' : 'RM 3,000', 8, 17, 14, 'Semi Bold', value === selected ? C.brand : C.muted, 150, 'CENTER');
+    connect(choice, state, 'Edit budget ' + Number(value));
+  });
+  text(sheet, 'Category limits rebalance to match your total.', 24, 349, 11, 'Regular', C.muted, 345);
+  button(sheet, 'Save budget', 24, 391, 345, withState(state, { budgetRaised: selected }), 'Budget');
+  text(sheet, 'Demo data · no bank connection', 24, 461, 10, 'Regular', C.muted, 345, 'CENTER');
+}
+function addExpenseDialog(state, x, y) {
+  const n = screen(state, 'Add expense', x, y);
+  expenses(n, state); nav(n, state, 'Expenses');
+  const sheet = modal(n, state, 'Record an expense', 294, 'Expenses');
+  text(sheet, 'A sample daily expense, ready to save.', 24, 76, 12, 'Regular', C.muted, 345);
+  text(sheet, 'Amount', 24, 111, 12, 'Medium', C.muted, 345);
+  box(sheet, 'Sample amount', 24, 139, 345, 78, C.canvas, 14, C.line);
+  text(sheet, 'RM 48.90', 40, 157, 33, 'Bold', C.ink, 313);
+  text(sheet, 'Category', 24, 242, 12, 'Medium', C.muted, 345);
+  box(sheet, 'Category field', 24, 267, 345, 53, C.canvas, 12, C.line);
+  icon(sheet, 'utensils', 40, 282); text(sheet, 'Food & drinks', 76, 282, 14, 'Medium', C.ink, 266);
+  text(sheet, 'Note', 24, 344, 12, 'Medium', C.muted, 345);
+  box(sheet, 'Note field', 24, 368, 345, 48, C.canvas, 12, C.line);
+  text(sheet, 'Lunch at Kopi House', 40, 382, 14, 'Regular', C.ink, 309);
+  text(sheet, 'Today · 10 October 2026', 24, 435, 11, 'Regular', C.muted, 345);
+  button(sheet, state.expenseAdded ? 'View saved expense' : 'Save expense', 24, 469, 345,
+    withState(state, { expenseAdded: true }), state.expenseAdded ? 'Expense detail' : 'Expenses');
+}
+function detailDialog(state, x, y) {
+  const n = screen(state, 'Expense detail', x, y);
+  expenses(n, state); nav(n, state, 'Expenses');
+  const sheet = modal(n, state, 'Expense recorded', 398, 'Expenses');
+  icon(sheet, 'check', 24, 82, C.brand, 32);
+  text(sheet, 'RM 48.90', 24, 132, 34, 'Bold', C.ink, 345);
+  text(sheet, 'Lunch at Kopi House', 24, 186, 17, 'Semi Bold', C.ink, 345);
+  text(sheet, 'Food & drinks · 10 October 2026', 24, 219, 12, 'Regular', C.muted, 345);
+  text(sheet, 'Your budget and forecast include this expense.', 24, 265, 12, 'Regular', C.muted, 345);
+  button(sheet, 'Done', 24, 308, 345, state, 'Expenses');
+  button(sheet, 'Delete expense', 24, 373, 345, withState(state, { expenseAdded: false }), 'Expenses', 'secondary', 'trash');
+}
+function compareDialog(state, x, y) {
+  const n = screen(state, 'Compare forecast', x, y);
+  forecast(n, state); nav(n, state, 'Forecast');
+  const sheet = modal(n, state, 'Two possible Octobers', 318, 'Forecast');
+  const m = SB.metrics(state);
+  text(sheet, 'Same spending so far. A different daily habit.', 24, 77, 12, 'Regular', C.muted, 345);
+  text(sheet, 'At your current pace', 24, 116, 13, 'Medium', C.muted, 345);
+  text(sheet, SB.money(m.currentForecast), 24, 145, 29, 'Bold', C.ink, 345);
+  box(sheet, 'Compare divider', 24, 204, 345, 1, C.line);
+  text(sheet, 'With RM 22 less per day', 24, 226, 13, 'Medium', C.brand, 345);
+  text(sheet, SB.money(m.withPlanForecast), 24, 255, 29, 'Bold', C.brand, 345);
+  text(sheet, `${SB.money(m.plannedSavings)} difference over 21 days`, 24, 306, 12, 'Regular', C.muted, 345);
+  text(sheet, 'Only future spending changes. Recorded expenses stay.', 24, 348, 11, 'Regular', C.muted, 345);
+  button(sheet, state.planApplied ? 'Keep saving plan' : 'Apply saving plan', 24, 402, 345,
+    withState(state, { planApplied: true }), 'Forecast');
+  text(sheet, 'Estimates use a simple daily-average model.', 24, 480, 10, 'Regular', C.muted, 345, 'CENTER');
+}
+async function main() {
+  if (figma.editorType !== 'figma') throw new Error('Run this plugin in a Figma Design file.');
+  await Promise.all(['Regular', 'Medium', 'Semi Bold', 'Bold'].map(style => figma.loadFontAsync({ family: 'Inter', style })));
+  page = figma.createPage(); page.name = 'SmartBudget · Clickable Prototype';
+  await figma.setCurrentPageAsync(page);
+  page.backgrounds = paint('#EAF0EC'); page.prototypeBackgrounds = paint('#EAF0EC');
+  text(page, 'SmartBudget', 0, 0, 44, 'Bold', C.brand, 1000);
+  text(page, 'Know what is left. Make a better next move.', 0, 69, 22, 'Medium', C.ink, 1300);
+  text(page, 'START: select 000/Dashboard and click Present. Budget → RM 3,200 → save → add RM 48.90 → apply saving plan → forecast.', 0, 115, 17, 'Regular', C.ink, 4200);
+  text(page, 'Teal · MYR · 393 × 852 mobile frames · October 2026 demo · Native editable layers · Linked states preserve choices in any order', 0, 151, 14, 'Regular', C.muted, 4200);
+  text(page, 'Five core features; extra frames implement interactions. Demo amount choices are preset. No live AI, accounts or banking.', 0, 181, 14, 'Regular', C.muted, 4200);
+  const names = Object.keys(views);
+  for (let row = 0; row < SB.states.length; row++) {
+    const state = SB.states[row], y = 290 + row * 960;
+    const m = SB.metrics(state);
+    text(page, `${SB.key(state)} · ${SB.money(m.budget)} budget · ${state.expenseAdded ? 'lunch recorded' : 'before lunch'} · ${state.planApplied ? 'saving plan active' : 'no saving plan'}`,
+      0, y - 41, 17, 'Semi Bold', C.ink, 4250);
+    names.forEach((view, column) => {
+      const n = screen(state, view, column * 457, y);
+      views[view](n, state); nav(n, state, view);
+    });
+    budgetDialog(state, false, 5 * 457, y);
+    budgetDialog(state, true, 6 * 457, y);
+    if (!state.expenseAdded) addExpenseDialog(state, 7 * 457, y);
+    compareDialog(state, 8 * 457, y);
+    if (state.expenseAdded) detailDialog(state, 9 * 457, y);
+  }
+  for (const { node, destination } of connections) {
+    const target = frames.get(destination);
+    if (!target) throw new Error('Missing prototype destination: ' + destination);
+    await node.setReactionsAsync([{
+      trigger: { type: 'ON_CLICK' },
+      actions: [{ type: 'NODE', navigation: 'NAVIGATE', destinationId: target.id,
+        transition: { type: 'DISSOLVE', easing: { type: 'EASE_OUT' }, duration: 0.18 },
+        resetScrollPosition: true }]
+    }]);
+  }
+  const start = frames.get('000/Dashboard');
+  page.flowStartingPoints = [{ nodeId: start.id, name: 'SmartBudget · Start here' }];
+  page.selection = [start]; figma.viewport.scrollAndZoomIntoView([start]);
+  figma.closePlugin(`SmartBudget created: ${frames.size} editable frames, ${connections.length} connections. Click Present to try it.`);
+}
+main().catch(error => {
+  console.error(error);
+  figma.closePlugin('SmartBudget could not finish: ' + error.message + '. Your existing pages were not changed.');
+});
